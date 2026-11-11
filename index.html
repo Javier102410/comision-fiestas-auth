@@ -1,0 +1,240 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
+  <title>Recuperar contraseña - Comisión de Fiestas</title>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f5f9;
+      margin: 0;
+      padding: 24px;
+      color: #222;
+    }
+
+    .contenedor {
+      max-width: 420px;
+      margin: 70px auto;
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px #00000012;
+    }
+
+    h1 {
+      font-size: 24px;
+      color: #174ea6;
+    }
+
+    label {
+      display: block;
+      margin-top: 18px;
+      font-weight: bold;
+    }
+
+    input, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 12px;
+      margin-top: 8px;
+      border-radius: 6px;
+      font-size: 15px;
+    }
+
+    input {
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background: #174ea6;
+      color: white;
+      border: none;
+      cursor: pointer;
+      margin-top: 24px;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    #mensaje {
+      margin-top: 20px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+
+<body>
+
+  <main class="contenedor">
+    <h1>Comisión de Fiestas</h1>
+    <h2>Restablecer contraseña</h2>
+
+    <p id="estado">Comprobando enlace de recuperación...</p>
+
+    <form id="formulario" hidden>
+      <label for="password">Nueva contraseña</label>
+      <input
+        type="password"
+        id="password"
+        minlength="12"
+        autocomplete="new-password"
+        required
+      >
+
+      <label for="confirmacion">Confirmar contraseña</label>
+      <input
+        type="password"
+        id="confirmacion"
+        minlength="12"
+        autocomplete="new-password"
+        required
+      >
+
+      <button type="submit" id="guardar">
+        Guardar nueva contraseña
+      </button>
+    </form>
+
+    <p id="mensaje" role="status" aria-live="polite"></p>
+  </main>
+
+  <script type="module">
+    import { createClient } from
+      "https://esm.sh/@supabase/supabase-js@2";
+
+    const SUPABASE_URL =
+      "https://cmxjhtxxohtilppqundp.supabase.co";
+
+    // Sustituir por la clave PUBLICABLE de Supabase.
+    // Nunca utilizar sb_secret ni service_role.
+    const SUPABASE_KEY = "sb_publishable_62TtRdopfZPHDCzBKhERTQ_4QaXS7ZY";
+
+    const estado = document.getElementById("estado");
+    const formulario = document.getElementById("formulario");
+    const mensaje = document.getElementById("mensaje");
+    const guardar = document.getElementById("guardar");
+
+    const supabase = createClient(
+      SUPABASE_URL,
+      SUPABASE_KEY,
+      {
+        auth: {
+          detectSessionInUrl: true,
+          persistSession: false,
+          autoRefreshToken: false
+        }
+      }
+    );
+
+    async function iniciar() {
+      try {
+        const parametros = new URLSearchParams(
+          window.location.search
+        );
+
+        const codigo = parametros.get("code");
+        const error = parametros.get("error");
+        const tokenHash = parametros.get("token_hash");
+        const tipo = parametros.get("type");
+
+        if (error) {
+          throw new Error(
+            "El enlace no es válido o ha caducado. " +
+            "Solicita uno nuevo desde Supabase."
+          );
+        }
+
+        if (codigo) {
+          const { error: errorCodigo } =
+            await supabase.auth.exchangeCodeForSession(codigo);
+
+          if (errorCodigo) throw errorCodigo;
+        } else if (tokenHash && tipo === "recovery") {
+          const { error: errorOtp } =
+            await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: "recovery"
+            });
+
+          if (errorOtp) throw errorOtp;
+        }
+
+        const { data, error: errorSesion } =
+          await supabase.auth.getSession();
+
+        if (errorSesion) throw errorSesion;
+
+        if (!data.session) {
+          throw new Error(
+            "No se ha encontrado una sesión válida de recuperación."
+          );
+        }
+
+        // No conservar los códigos en la barra de direcciones.
+        window.history.replaceState(
+          {},
+          document.title,
+          window.location.pathname
+        );
+
+        estado.textContent =
+          "Introduce tu nueva contraseña.";
+
+        formulario.hidden = false;
+
+      } catch (error) {
+        estado.textContent = "No se puede recuperar la contraseña.";
+        mensaje.textContent = error.message;
+      }
+    }
+
+    formulario.addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+
+      const password =
+        document.getElementById("password").value;
+
+      const confirmacion =
+        document.getElementById("confirmacion").value;
+
+      if (password !== confirmacion) {
+        mensaje.textContent =
+          "Las contraseñas no coinciden.";
+        return;
+      }
+
+      guardar.disabled = true;
+      mensaje.textContent = "Actualizando contraseña...";
+
+      try {
+        const { error } = await supabase.auth.updateUser({
+          password: password
+        });
+
+        if (error) throw error;
+
+        await supabase.auth.signOut();
+
+        formulario.hidden = true;
+        estado.textContent = "Contraseña actualizada.";
+        mensaje.textContent =
+          "Ya puedes iniciar sesión en la aplicación.";
+
+      } catch (error) {
+        mensaje.textContent = error.message;
+      } finally {
+        guardar.disabled = false;
+      }
+    });
+
+    iniciar();
+  </script>
+
+</body>
+</html>
